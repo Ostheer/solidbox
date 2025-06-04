@@ -1,0 +1,11 @@
+[project]
+name = "solidbox"
+version = "0.1"
+description = "Compute bounding boxes for SolidPython (2) objects"
+authors = [
+    { name = "Mathijs Verhaegh", email = "mathijs@verhaegh.nl" }
+]
+dependencies = [
+    "attrs",
+    "solidpython2"
+]
