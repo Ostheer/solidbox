@@ -7,5 +7,6 @@ authors = [
 ]
 dependencies = [
     "attrs",
-    "solidpython2"
+    "solidpython2",
+    "scipy"
 ]

@@ -3,6 +3,7 @@ from solid2.core.object_base.object_base_impl import BareOpenSCADObject
 from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
 from typing import Callable, Mapping
+from scipy.spatial.transform import Rotation as R
 
 
 DTR = 360/2/pi
@@ -112,17 +113,7 @@ class Bbox:
         name = f"{type(d).__module__}.{type(d).__name__}"
         params = d._params
 
-        # Merge rotations into single rotation. 
-        # This prevents Bbox creep by calculating bboxes of rotated bboxes instead of of the multiply rotated original object.
-        # NOTE: Rotations are currently the only type of expedited operations, so this should work. However, if other operations 
-        # are expedited in future versions, we may have to merge rotations here even if they're not adjecent in the queue.
-        _new_exp = []
-        for op in expedite:
-            if _new_exp and isinstance(op, Rotation) and isinstance(_new_exp[-1], Rotation):
-                _new_exp[-1] = Rotation(callback=op.callback, kwargs={"rot": [r1 + r2 for r1, r2 in zip(_new_exp[-1].vector, op.vector)]})
-            else:
-                _new_exp.append(op)
-        expedite = tuple(_new_exp)
+        expedite = merge_rotations(*expedite)
 
         # Translate some operators
         if name == BOSL + "transforms.up":
@@ -333,3 +324,20 @@ class Rotation(Operation):
     @property
     def vector(self) -> tuple[float, float, float]:
         return self.kwargs["rot"]
+
+
+def merge_rotations(*expedite) -> tuple[Operation, ...]:
+        # Merge rotations into single rotation. 
+        # This prevents Bbox creep by calculating bboxes of rotated bboxes instead of of the multiply rotated original object.
+        # NOTE: Rotations are currently the only type of expedited operations, so this should work. However, if other operations 
+        # are expedited in future versions, we may have to merge rotations here even if they're not adjecent in the queue.
+
+        if not expedite:
+            return ()
+
+        rot, *rots = (R.from_euler('xyz', op.vector, degrees=True) for op in expedite[::-1])
+        for rot2 in rots:
+            rot *= rot2
+        totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
+
+        return Rotation(callback=expedite[0].callback, kwargs={"rot": totrot}),
