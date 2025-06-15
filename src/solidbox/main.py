@@ -126,6 +126,9 @@ class Bbox:
                 c = params["center"] or False
             elif name == BOSL + "shapes3d.cuboid":
                 c = params.get("center", True)
+            else:
+                assert False
+            assert isinstance(c, bool)
             
             x, y, z = params["size"]
             return cls(-c/2*x, x-c/2*x, -c/2*y, y-c/2*y, -c/2*z, z-c/2*z)
