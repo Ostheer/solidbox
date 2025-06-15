@@ -1,6 +1,6 @@
 from attrs import define, field
 from solid2.core.object_base.object_base_impl import BareOpenSCADObject
-from solid2 import cube, cylinder, sphere
+from solid2 import cube, cylinder, sphere, union
 from math import sin, cos, pi
 
 DTR = 360/2/pi
@@ -143,62 +143,22 @@ class Bbox:
         
         elif name == PRIM + "rotate":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
-            bx, by, bz = params["a"]
-            box = Bbox.from_scad(d._children[0])
+            # parent = d
+            # while len(parent._children) == 1:
+            #     parent = parent._children[0]
+            parent = d._children[0]
 
-            rotated_bbox_points_x = []
-            rotated_bbox_points_y = []
-            rotated_bbox_points_z = []
-            for xo in box.as_tuple[0]:
-                for yo in box.as_tuple[1]:
-                    for zo in box.as_tuple[2]:
-                        x, y, z = xo, yo, zo
+            _a: tuple[float, float, float] = params["a"]  # pyright: ignore[reportAssignmentType]
 
-                        # Rotate around X-axis
-                        # Treat Y-component
-                        y1 = y * cos(bx / DTR)
-                        z1 = y * sin(bx / DTR)
-                        # Treat Z-component
-                        z2 = z * cos(bx / DTR)
-                        y2 = z * -sin(bx / DTR)
-                        # Sum
-                        y = y1 + y2
-                        z = z1 + z2
+            # This would return the rotated bbox of the union of children
+            # return Bbox.from_scad(parent).__rotate(_a)
 
-                        # Rotate around Y-axis
-                        # Treat Z-component
-                        z1 = z * cos(by / DTR)
-                        x1 = z * sin(by / DTR)
-                        # Treat X-component
-                        x2 = x * cos(by / DTR)
-                        z2 = x * -sin(by / DTR)
-                        # Sum
-                        x = x1 + x2
-                        z = z1 + z2
+            # This returns the union of the rotated bboxes of the children
+            boxes = []
+            for child in parent._children:
+                boxes.append(cls.from_scad(child).__rotate(_a))
+            return cls.from_scad(union()([box.as_cube for box in boxes]))
 
-                        # Rotate around Z-axis
-                        # Treat X-component
-                        x1 = x * cos(bz / DTR)
-                        y1 = x * sin(bz / DTR)
-                        # Treat Y-component
-                        y2 = y * cos(bz / DTR)
-                        x2 = y * -sin(bz / DTR)
-                        # Sum
-                        x = x1 + x2
-                        y = y1 + y2
-
-                        rotated_bbox_points_x.append(x)
-                        rotated_bbox_points_y.append(y)
-                        rotated_bbox_points_z.append(z)
-
-            return cls(
-                min(rotated_bbox_points_x),
-                max(rotated_bbox_points_x),
-                min(rotated_bbox_points_y),
-                max(rotated_bbox_points_y),
-                min(rotated_bbox_points_z),
-                max(rotated_bbox_points_z),
-            )
 
         elif name == PRIM + "scale":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
@@ -264,3 +224,64 @@ class Bbox:
             # Such a Bbox will be ignored by further Bbox computations.
             # IDEA: perhaps I could have the user add a bbox annotation to some objects they know aren't implemented/able. Could be as simple as just setting a 3x2-tuple to some new attribute, e.g. r=rack(...); r.bbox_hint=(...). This hint could then be used later when computing the bbox if the object type is not matched.
             return cls()
+
+
+    def __rotate(
+        self,
+        rot: tuple[float, float, float],
+        ):
+        bx, by, bz = rot
+
+        rotated_bbox_points_x = []
+        rotated_bbox_points_y = []
+        rotated_bbox_points_z = []
+        for xo in self.as_tuple[0]:
+            for yo in self.as_tuple[1]:
+                for zo in self.as_tuple[2]:
+                    x, y, z = xo, yo, zo
+
+                    # Rotate around X-axis
+                    # Treat Y-component
+                    y1 = y * cos(bx / DTR)
+                    z1 = y * sin(bx / DTR)
+                    # Treat Z-component
+                    z2 = z * cos(bx / DTR)
+                    y2 = z * -sin(bx / DTR)
+                    # Sum
+                    y = y1 + y2
+                    z = z1 + z2
+
+                    # Rotate around Y-axis
+                    # Treat Z-component
+                    z1 = z * cos(by / DTR)
+                    x1 = z * sin(by / DTR)
+                    # Treat X-component
+                    x2 = x * cos(by / DTR)
+                    z2 = x * -sin(by / DTR)
+                    # Sum
+                    x = x1 + x2
+                    z = z1 + z2
+
+                    # Rotate around Z-axis
+                    # Treat X-component
+                    x1 = x * cos(bz / DTR)
+                    y1 = x * sin(bz / DTR)
+                    # Treat Y-component
+                    y2 = y * cos(bz / DTR)
+                    x2 = y * -sin(bz / DTR)
+                    # Sum
+                    x = x1 + x2
+                    y = y1 + y2
+
+                    rotated_bbox_points_x.append(x)
+                    rotated_bbox_points_y.append(y)
+                    rotated_bbox_points_z.append(z)
+
+        return type(self)(
+            min(rotated_bbox_points_x),
+            max(rotated_bbox_points_x),
+            min(rotated_bbox_points_y),
+            max(rotated_bbox_points_y),
+            min(rotated_bbox_points_z),
+            max(rotated_bbox_points_z),
+        )
