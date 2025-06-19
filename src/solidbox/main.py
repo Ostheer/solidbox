@@ -411,4 +411,4 @@ def merge_operations(*expedite: Operation) -> Sequence[Operation]:
         elif scl is not None:
             new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
         
-        return new
+        return new[::-1]
