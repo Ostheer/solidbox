@@ -2,9 +2,9 @@ from attrs import define, field
 from solid2.core.object_base.object_base_impl import BareOpenSCADObject
 from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Sequence
 from scipy.spatial.transform import Rotation as R
-
+from copy import deepcopy
 
 DTR = 360/2/pi
 PRIM = "solid2.core.builtins.openscad_primitives."
@@ -113,7 +113,7 @@ class Bbox:
         name = f"{type(d).__module__}.{type(d).__name__}"
         params = d._params
 
-        expedite = merge_rotations(*expedite)
+        expedite = merge_operations(*expedite)  # pyright: ignore[reportAssignmentType]
 
         # Translate some operators
         if name == BOSL + "transforms.up":
@@ -151,21 +151,38 @@ class Bbox:
             obj = cls(-c/2*x, x-c/2*x, -c/2*y, y-c/2*y, -c/2*z, z-c/2*z)
             return apply_expedited(obj)
 
+        # FIXME: this is broken. Specifically, the way scalings and rotations of the translation vector are combined is wrong.
         elif name == PRIM + "translate":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
             trans: tuple[float, float, float] = params["v"]  # pyright: ignore[reportAssignmentType]
+            orig_trans = deepcopy(trans)
             for op in expedite:
                 # The constituent objects get rotated below, but here we also rotate the translation itself.
                 if isinstance(op, Rotation):
                     trans = rotate_point(trans, op.vector)
-            return cls.from_tuple(
+                elif isinstance(op, Scaling):
+                    trans = scale_point(trans, op.vector)
+            bbox1 = cls.from_tuple(
                 (mn + tdim, mx + tdim)
                 for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], *expedite).as_tuple)
             )
+            
+            trans = orig_trans
+            for op in expedite[::-1]:
+                if isinstance(op, Rotation):
+                    trans = rotate_point(trans, op.vector)
+                elif isinstance(op, Scaling):
+                    trans = scale_point(trans, op.vector)
+            bbox2 = cls.from_tuple(
+                (mn + tdim, mx + tdim)
+                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], *expedite).as_tuple)
+            )
+            
+            # return cls._union(bbox1, bbox2)
+            return cls._intersection(bbox1, bbox2)
         
         elif name == PRIM + "rotate":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
-
             _a: tuple[float, float, float] = params["a"]  # pyright: ignore[reportAssignmentType]
 
             # This would return the rotated bbox of the union of children. It returns a valid upper bound for the box, but 
@@ -173,15 +190,12 @@ class Bbox:
             # return Bbox.from_scad(d._children[0]).__rotate(_a)
 
             # Instead, try to do the rotation as early as possible
-            return Bbox.from_scad(d._children[0], Rotation(callback=cls.__rotate, kwargs={"rot": _a}), *expedite)
-
+            return Bbox.from_scad(d._children[0], Rotation(callback=cls._rotate, kwargs={"vector": _a}), *expedite)
 
         elif name == PRIM + "scale":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
-            sx, sy, sz = params["v"]
-            box = Bbox.from_scad(d._children[0])
-            obj = cls(sx*box.x_min, sx*box.x_max, sy*box.y_min, sy*box.y_max, sz*box.z_min, sz*box.z_max)
-            return apply_expedited(obj)
+            _a: tuple[float, float, float] = params["v"]  # pyright: ignore[reportAssignmentType]
+            return Bbox.from_scad(d._children[0], Scaling(callback=cls._scale, kwargs={"vector": _a}), *expedite)
 
         elif name in [
             PRIM + "union",
@@ -189,13 +203,7 @@ class Bbox:
             BOSL + "color.hsv",
         ]:
             if boxes := [box for box in [cls.from_scad(child, *expedite) for child in d._children] if not box.is_null]:
-                return cls.from_tuple(
-                    [
-                        (min, max)[inx](box.as_tuple[idim][inx] for box in boxes)
-                        for inx in (0, 1)
-                    ]
-                    for idim in (0, 1, 2)
-                )
+                return cls._union(*boxes)
             else:
                 # No children or all were null, this branch does not contribute to Bbox.
                 return cls()
@@ -222,17 +230,8 @@ class Bbox:
         elif name in [
             BOSL + "regions.intersection"
         ]:
-            # TODO: I wrote this up as identical to union, but min anx max swapped. Didn't properly think or test it, so this needs to be verified.
-            # TODO: If it *is* (roughly) valid, then we should somehow reuse some code.
-            if boxes := [box for box in [cls.from_scad(child) for child in d._children] if not box.is_null]:
-                obj = cls.from_tuple(
-                    [
-                        (max, min)[inx](box.as_tuple[idim][inx] for box in boxes)
-                        for inx in (0, 1)
-                    ]
-                    for idim in (0, 1, 2)
-                )
-                return apply_expedited(obj)
+            if boxes := [box for box in [cls.from_scad(child, *expedite) for child in d._children] if not box.is_null]:
+                return cls._intersection(*boxes)
             else:
                 # No children or all were null, this branch does not contribute to Bbox.
                 return cls()
@@ -245,9 +244,9 @@ class Bbox:
             return cls()
 
 
-    def __rotate(
+    def _rotate(
         self,
-        rot: tuple[float, float, float],
+        vector: tuple[float, float, float],
         ):
         rotated_bbox_points_x = []
         rotated_bbox_points_y = []
@@ -255,7 +254,7 @@ class Bbox:
         for xo in self.as_tuple[0]:
             for yo in self.as_tuple[1]:
                 for zo in self.as_tuple[2]:
-                    x, y, z = rotate_point((xo, yo, zo), rot)
+                    x, y, z = rotate_point((xo, yo, zo), vector)
                     rotated_bbox_points_x.append(x)
                     rotated_bbox_points_y.append(y)
                     rotated_bbox_points_z.append(z)
@@ -268,6 +267,39 @@ class Bbox:
             min(rotated_bbox_points_z),
             max(rotated_bbox_points_z),
         )
+
+    def _scale(
+        self,
+        vector: tuple[float, float, float],
+        ):
+        xmin, ymin, zmin = scale_point((self.x_min, self.y_min, self.z_min), vector)
+        xmax, ymax, zmax = scale_point((self.x_max, self.y_max, self.z_max), vector)
+        return type(self)(
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+            zmin,
+            zmax,
+        )
+
+    @classmethod
+    def __union_intersection(cls, minmaxmaxmin, *boxes: "Bbox") -> "Bbox":
+        return cls.from_tuple(
+            [
+                minmaxmaxmin[inx](box.as_tuple[idim][inx] for box in boxes)
+                for inx in (0, 1)
+            ]
+            for idim in (0, 1, 2)
+        )
+
+    @classmethod
+    def _union(cls, *boxes: "Bbox") -> "Bbox":
+        return cls.__union_intersection((min, max), *boxes)
+
+    @classmethod
+    def _intersection(cls, *boxes: "Bbox") -> "Bbox":
+        return cls.__union_intersection((max, min), *boxes)
 
 
 def rotate_point(
@@ -313,31 +345,70 @@ def rotate_point(
     return x, y, z
 
 
+def scale_point(
+    point: tuple[float, float, float], 
+    scaling: tuple[float, float, float]
+    ) -> tuple[float, float, float]:
+    x, y, z = point
+    bx, by, bz = scaling
+
+    return bx*x, by*y, bz*z
+
+
 @define
 class Operation:
     kwargs: Mapping
     callback: Callable
-    
 
-@define
-class Rotation(Operation):    
     @property
     def vector(self) -> tuple[float, float, float]:
-        return self.kwargs["rot"]
+        return self.kwargs["vector"]
+
+class Rotation(Operation):
+    pass
+
+class Scaling(Operation):
+    pass
 
 
-def merge_rotations(*expedite) -> tuple[Operation, ...]:
-        # Merge rotations into single rotation. 
-        # This prevents Bbox creep by calculating bboxes of rotated bboxes instead of of the multiply rotated original object.
-        # NOTE: Rotations are currently the only type of expedited operations, so this should work. However, if other operations 
-        # are expedited in future versions, we may have to merge rotations here even if they're not adjecent in the queue.
-
+def merge_operations(*expedite: Operation) -> Sequence[Operation]:
         if not expedite:
             return ()
+        
+        new = []
+        rot = None
+        scl = None
+        for op in expedite[::-1]:
+            if isinstance(op, Rotation):
+                # We have a rotation (maybe again)
+                _rot = R.from_euler('xyz', op.vector, degrees=True)
+                if rot is None:
+                    rot = _rot
+                else:
+                    rot *= _rot
+            
+            elif rot is not None:
+                # We had rotations, but now it's something else. Put hot rotations in the list
+                _totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
+                new.append(Rotation(callback=Bbox._rotate, kwargs={"vector": _totrot}),)
+                rot = None
 
-        rot, *rots = (R.from_euler('xyz', op.vector, degrees=True) for op in expedite[::-1])
-        for rot2 in rots:
-            rot *= rot2
-        totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
+            if isinstance(op, Scaling):
+                _scl = op.vector
+                if scl is None:
+                    scl = _scl
+                else:
+                    scl = [r1*r2 for r1, r2 in zip(scl, _scl)]
+            
+            elif scl is not None:
+                new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
+                scl = None
 
-        return Rotation(callback=expedite[0].callback, kwargs={"rot": totrot}),
+        # The last one still has to be added
+        if rot is not None:
+            _totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
+            new.append(Rotation(callback=Bbox._rotate, kwargs={"vector": _totrot}),)
+        elif scl is not None:
+            new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
+        
+        return new
