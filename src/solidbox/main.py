@@ -4,7 +4,6 @@ from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
 from typing import Callable, Mapping, Sequence
 from scipy.spatial.transform import Rotation as R
-from copy import deepcopy
 
 DTR = 360/2/pi
 PRIM = "solid2.core.builtins.openscad_primitives."
@@ -151,35 +150,19 @@ class Bbox:
             obj = cls(-c/2*x, x-c/2*x, -c/2*y, y-c/2*y, -c/2*z, z-c/2*z)
             return apply_expedited(obj)
 
-        # FIXME: this is broken. Specifically, the way scalings and rotations of the translation vector are combined is wrong.
         elif name == PRIM + "translate":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
             trans: tuple[float, float, float] = params["v"]  # pyright: ignore[reportAssignmentType]
-            orig_trans = deepcopy(trans)
             for op in expedite:
-                # The constituent objects get rotated below, but here we also rotate the translation itself.
+                # The constituent objects get rotated below, but here we also rotate and scale the translation itself.
                 if isinstance(op, Rotation):
                     trans = rotate_point(trans, op.vector)
                 elif isinstance(op, Scaling):
                     trans = scale_point(trans, op.vector)
-            bbox1 = cls.from_tuple(
+            return cls.from_tuple(
                 (mn + tdim, mx + tdim)
                 for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], *expedite).as_tuple)
             )
-            
-            trans = orig_trans
-            for op in expedite[::-1]:
-                if isinstance(op, Rotation):
-                    trans = rotate_point(trans, op.vector)
-                elif isinstance(op, Scaling):
-                    trans = scale_point(trans, op.vector)
-            bbox2 = cls.from_tuple(
-                (mn + tdim, mx + tdim)
-                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], *expedite).as_tuple)
-            )
-            
-            # return cls._union(bbox1, bbox2)
-            return cls._intersection(bbox1, bbox2)
         
         elif name == PRIM + "rotate":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
