@@ -4,6 +4,8 @@ from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
 from typing import Callable, Mapping, Sequence
 from scipy.spatial.transform import Rotation as R
+import numpy as np
+
 
 DTR = 360/2/pi
 PRIM = "solid2.core.builtins.openscad_primitives."
@@ -293,46 +295,45 @@ class Bbox:
         return cls.__union_intersection((max, min), *boxes)
 
 
+class rot:
+    @staticmethod
+    def x(theta):
+        theta /= DTR
+        return np.array([
+            [1, 0, 0],
+            [0, cos(theta), -sin(theta)],
+            [0, sin(theta), cos(theta)],
+        ])
+
+    @staticmethod
+    def y(theta):
+        theta /= DTR
+        return np.array([
+            [cos(theta), 0, sin(theta)],
+            [0, 1, 0],
+            [-sin(theta), 0, cos(theta)],
+        ])
+
+    @staticmethod
+    def z(theta):
+        theta /= DTR
+        return np.array([
+            [cos(theta), -sin(theta), 0],
+            [sin(theta), cos(theta), 0],
+            [0, 0, 1],
+        ])
+    
+    @classmethod
+    def xyz(cls, rotation):
+        bx, by, bz = rotation
+        return cls.z(bz) @ cls.y(by) @ cls.x(bx)
+
+
 def rotate_point(
     point: tuple[float, float, float], 
     rotation: tuple[float, float, float]
     ) -> tuple[float, float, float]:
-    x, y, z = point
-    bx, by, bz = rotation
-
-    # Rotate around X-axis
-    # Treat Y-component
-    y1 = y * cos(bx / DTR)
-    z1 = y * sin(bx / DTR)
-    # Treat Z-component
-    z2 = z * cos(bx / DTR)
-    y2 = z * -sin(bx / DTR)
-    # Sum
-    y = y1 + y2
-    z = z1 + z2
-
-    # Rotate around Y-axis
-    # Treat Z-component
-    z1 = z * cos(by / DTR)
-    x1 = z * sin(by / DTR)
-    # Treat X-component
-    x2 = x * cos(by / DTR)
-    z2 = x * -sin(by / DTR)
-    # Sum
-    x = x1 + x2
-    z = z1 + z2
-
-    # Rotate around Z-axis
-    # Treat X-component
-    x1 = x * cos(bz / DTR)
-    y1 = x * sin(bz / DTR)
-    # Treat Y-component
-    y2 = y * cos(bz / DTR)
-    x2 = y * -sin(bz / DTR)
-    # Sum
-    x = x1 + x2
-    y = y1 + y2
-
+    x, y, z = rot.xyz(rotation) @ point
     return x, y, z
 
 
