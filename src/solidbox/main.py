@@ -211,6 +211,14 @@ class Bbox:
             return apply_expedited(obj)
 
         elif name in [
+            PRIM + "sphere",
+            BOSL + "shapes3d.sphere",
+        ]:
+            r = params["r"]
+            obj = cls(-r, r, -r, r, -r, r)  # pyright: ignore[reportArgumentType, reportOperatorIssue]
+            return apply_expedited(obj)
+
+        elif name in [
             BOSL + "regions.intersection"
         ]:
             if boxes := [box for box in [cls.from_scad(child, *expedite) for child in d._children] if not box.is_null]:
