@@ -5,6 +5,7 @@ from math import sin, cos, pi
 from typing import Callable, Mapping, Sequence
 from scipy.spatial.transform import Rotation as R
 import numpy as np
+from collections import namedtuple
 
 
 DTR = 360/2/pi
@@ -22,6 +23,9 @@ def apply(obj: "Bbox", *operations: "Operation") -> "Bbox":
     for op in operations:
         obj = op.callback(obj, **op.kwargs)
     return obj
+
+
+Point3D = namedtuple("Point3D", ["x", "y", "z"])
 
 
 @define
@@ -71,6 +75,26 @@ class Bbox:
     @property
     def as_tuple(self) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
         return ((self.x_min, self.x_max), (self.y_min, self.y_max), (self.z_min, self.z_max))
+    
+    @property
+    def points(
+        self,
+    ) -> tuple[
+        Point3D,
+        Point3D,
+        Point3D,
+        Point3D,
+        Point3D,
+        Point3D,
+        Point3D,
+        Point3D,
+    ]:
+        points = []
+        for x in self.as_tuple[0]:
+            for y in self.as_tuple[1]:
+                for z in self.as_tuple[2]:
+                    points.append((x, y, z))
+        return tuple(points)
 
     @property
     def as_cube(self) -> BareOpenSCADObject:
@@ -363,44 +387,51 @@ class Scaling(Operation):
     pass
 
 
-def merge_operations(*expedite: Operation) -> Sequence[Operation]:
-        if not expedite:
-            return ()
+def merge_operations(*expedite: Operation) -> Sequence[Operation]:  # pyright: ignore[reportRedeclaration]
+    # TODO: Multiply *all* rotation and scaling matrices into single transformation matrix. 
+    # This will require a new type of Operation, one that doesn't have a vector, but a matrix. Its callback
+    # Should just return Bbox.from_points(*mat@point for point in bbox.points) or something like that
+    expedite: Sequence[Operation]
+
+    if not expedite:
+        return ()
+    
+    new = []
+    rot = None
+    scl = None
+    for op in expedite[::-1]:
+        if isinstance(op, Rotation):
+            # We have a rotation (maybe again)
+            _rot = R.from_euler('xyz', op.vector, degrees=True)
+            if rot is None:
+                rot = _rot
+            else:
+                rot *= _rot
         
-        new = []
-        rot = None
-        scl = None
-        for op in expedite[::-1]:
-            if isinstance(op, Rotation):
-                # We have a rotation (maybe again)
-                _rot = R.from_euler('xyz', op.vector, degrees=True)
-                if rot is None:
-                    rot = _rot
-                else:
-                    rot *= _rot
-            
-            elif rot is not None:
-                # We had rotations, but now it's something else. Put hot rotations in the list
-                _totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
-                new.append(Rotation(callback=Bbox._rotate, kwargs={"vector": _totrot}),)
-                rot = None
-
-            if isinstance(op, Scaling):
-                _scl = op.vector
-                if scl is None:
-                    scl = _scl
-                else:
-                    scl = [r1*r2 for r1, r2 in zip(scl, _scl)]
-            
-            elif scl is not None:
-                new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
-                scl = None
-
-        # The last one still has to be added
-        if rot is not None:
+        elif rot is not None:
+            # We had rotations, but now it's something else. Put hot rotations in the list
             _totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
             new.append(Rotation(callback=Bbox._rotate, kwargs={"vector": _totrot}),)
+            rot = None
+
+        if isinstance(op, Scaling):
+            _scl = op.vector
+            if scl is None:
+                scl = _scl
+            else:
+                scl = [r1*r2 for r1, r2 in zip(scl, _scl)]
+        
         elif scl is not None:
             new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
-        
-        return new[::-1]
+            scl = None
+
+    # The last one still has to be added
+    if rot is not None:
+        _totrot = tuple([float(v) for v in rot.as_euler('xyz', degrees=True)])
+        new.append(Rotation(callback=Bbox._rotate, kwargs={"vector": _totrot}),)
+    if scl is not None:
+        new.append(Scaling(callback=Bbox._scale, kwargs={"vector": scl}),)
+    
+    expedite = new[::-1]
+
+    return expedite
