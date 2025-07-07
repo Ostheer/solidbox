@@ -319,7 +319,14 @@ class Bbox:
         return cls.__union_intersection((max, min), *boxes)
 
 
-class rot:
+class mat:
+    @classmethod
+    def xyz(cls, vector):
+        bx, by, bz = vector
+        return cls.z(bz) @ cls.y(by) @ cls.x(bx)  # pyright: ignore[reportAttributeAccessIssue]
+
+
+class rot(mat):
     @staticmethod
     def x(theta):
         theta /= DTR
@@ -347,10 +354,31 @@ class rot:
             [0, 0, 1],
         ])
     
-    @classmethod
-    def xyz(cls, rotation):
-        bx, by, bz = rotation
-        return cls.z(bz) @ cls.y(by) @ cls.x(bx)
+
+class scl(mat):
+    @staticmethod
+    def x(s):
+        return np.array([
+            [s, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ])
+
+    @staticmethod
+    def y(s):
+        return np.array([
+            [1, 0, 0],
+            [0, s, 0],
+            [0, 0, 1],
+        ])
+
+    @staticmethod
+    def z(s):
+        return np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, s],
+        ])
 
 
 def rotate_point(
@@ -365,10 +393,8 @@ def scale_point(
     point: tuple[float, float, float], 
     scaling: tuple[float, float, float]
     ) -> tuple[float, float, float]:
-    x, y, z = point
-    bx, by, bz = scaling
-
-    return bx*x, by*y, bz*z
+    x, y, z = scl.xyz(scaling) @ point
+    return x, y, z
 
 
 @define
