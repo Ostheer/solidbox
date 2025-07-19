@@ -24,6 +24,10 @@ Mat = Annotated[npt.NDArray[np.float64], (3, 3)]
 MAT_ID: Mat = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
+def get_name(obj):
+    return f"{type(obj).__module__}.{type(obj).__name__}"
+
+
 @define
 class Bbox:
     x_min: float = field(default=0, converter=float)
@@ -91,6 +95,10 @@ class Bbox:
                 for z in self.as_tuple[2]:
                     points.append((x, y, z))
         return tuple(points)
+    
+    @classmethod
+    def to_cube(cls, d: BareOpenSCADObject) -> BareOpenSCADObject:
+        return cls.from_scad(d).as_cube
 
     @property
     def as_cube(self) -> BareOpenSCADObject:
@@ -135,7 +143,11 @@ class Bbox:
     
     @classmethod
     def from_scad(cls, d: BareOpenSCADObject, expedite: Mat = MAT_ID, quiet: bool = False) -> "Bbox":
-        name = f"{type(d).__module__}.{type(d).__name__}"
+        if hasattr(d, "_bbox"):
+            # NOTE: Users may set the _bbox attribute on any otherwise unsupported OpenSCAD object to any other OpenSCAD object.
+            d = getattr(d, "_bbox")
+        
+        name = get_name(d)
         params = d._params
 
         # Translate some operators
@@ -250,7 +262,6 @@ class Bbox:
                 print(f"Warning: Unsupported object; '{name}'. Ignoring.")
             # Return 'special' Bbox for which is_null will be true (all-zero).
             # Such a Bbox will be ignored by further Bbox computations.
-            # IDEA: perhaps I could have the user add a bbox annotation to some objects they know aren't implemented/able. Could be as simple as just setting a 3x2-tuple to some new attribute, e.g. r=rack(...); r.bbox_hint=(...). This hint could then be used later when computing the bbox if the object type is not matched.
             return cls()
 
     
