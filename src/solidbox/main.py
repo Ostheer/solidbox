@@ -27,12 +27,12 @@ MAT_ID: Mat = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 @define
 class Bbox:
-    x_min: float = 0
-    x_max: float = 0
-    y_min: float = 0
-    y_max: float = 0
-    z_min: float = 0
-    z_max: float = 0
+    x_min: float = field(default=0, converter=float)
+    x_max: float = field(default=0, converter=float)
+    y_min: float = field(default=0, converter=float)
+    y_max: float = field(default=0, converter=float)
+    z_min: float = field(default=0, converter=float)
+    z_max: float = field(default=0, converter=float)
     
     depth: float = field(init=False)
     width: float = field(init=False)
@@ -120,11 +120,11 @@ class Bbox:
         return d
     
     @classmethod
-    def from_tuple(cls, tup) -> "Bbox":
-        tup = tuple(tup)
-        xn, xx = tup[0]
-        yn, yx = tup[1]
-        zn, zx = tup[2]
+    def from_tuple(cls, tup: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]) -> "Bbox":
+        xt, yt, zt = tuple(tup)
+        xn, xx = xt
+        yn, yx = yt
+        zn, zx = zt
         return cls(xn, xx, yn, yx, zn, zx)
     
     @classmethod
@@ -180,7 +180,7 @@ class Bbox:
             trans = expedite @ np.array(params["v"])
             return cls.from_tuple(
                 (mn + tdim, mx + tdim)
-                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], expedite, quiet=quiet).as_tuple)
+                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], expedite, quiet=quiet).as_tuple)  # pyright: ignore[reportArgumentType]
             )
         
         elif name == PRIM + "rotate":
@@ -265,7 +265,7 @@ class Bbox:
                 minmaxmaxmin[inx](box.as_tuple[idim][inx] for box in boxes)
                 for inx in (0, 1)
             ]
-            for idim in (0, 1, 2)
+            for idim in (0, 1, 2)  # pyright: ignore[reportArgumentType]
         )
 
     @classmethod
