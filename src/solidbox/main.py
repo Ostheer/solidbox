@@ -2,8 +2,6 @@ from attrs import define, field
 from solid2.core.object_base.object_base_impl import BareOpenSCADObject
 from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
-from typing import Callable, Mapping, Sequence
-from scipy.spatial.transform import Rotation as R
 import numpy as np
 from collections import namedtuple
 from typing import Annotated

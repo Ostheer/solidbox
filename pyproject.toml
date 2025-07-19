@@ -8,5 +8,5 @@ authors = [
 dependencies = [
     "attrs",
     "solidpython2",
-    "scipy"
+    "numpy",
 ]
