@@ -5,7 +5,6 @@ from math import sin, cos, pi
 import numpy as np
 from collections import namedtuple
 from typing import Annotated
-import numpy as np
 import numpy.typing as npt
 
 
