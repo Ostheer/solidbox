@@ -1,5 +1,5 @@
 from attrs import define, field
-from solid2.core.object_base.object_base_impl import BareOpenSCADObject
+from solid2.core.object_base import BareOpenSCADObject
 from solid2 import cube, cylinder, sphere
 from math import sin, cos, pi
 import numpy as np
@@ -37,13 +37,13 @@ class Bbox:
     depth: float = field(init=False)
     width: float = field(init=False)
     height: float = field(init=False)
-    center: tuple[float, float, float] = field(init=False)
+    center: Point3D = field(init=False)
 
     def __attrs_post_init__(self):
         self.depth = self.x_max - self.x_min
         self.width = self.y_max - self.y_min
         self.height = self.z_max - self.z_min
-        self.center = (self.x_max + self.x_min)/2, (self.y_max + self.y_min)/2, (self.z_max + self.z_min)/2
+        self.center = Point3D((self.x_max + self.x_min)/2, (self.y_max + self.y_min)/2, (self.z_max + self.z_min)/2)
     
     @property
     def x(self):
@@ -63,7 +63,7 @@ class Bbox:
 
     @property
     def center_n(self):
-        return -self.center[0], -self.center[1], -self.center[2]
+        return -self.center.x, -self.center.y, -self.center.z
     
     @property
     def is_null(self) -> bool:
@@ -135,7 +135,7 @@ class Bbox:
         return cls(min(xes), max(xes), min(yes), max(yes), min(zes), max(zes))
     
     @classmethod
-    def from_scad(cls, d: BareOpenSCADObject, expedite: Mat = MAT_ID) -> "Bbox":
+    def from_scad(cls, d: BareOpenSCADObject, expedite: Mat = MAT_ID, quiet: bool = False) -> "Bbox":
         name = f"{type(d).__module__}.{type(d).__name__}"
         params = d._params
 
@@ -180,7 +180,7 @@ class Bbox:
             trans = expedite @ np.array(params["v"])
             return cls.from_tuple(
                 (mn + tdim, mx + tdim)
-                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], expedite).as_tuple)
+                for tdim, (mn, mx) in zip(trans, cls.from_scad(d._children[0], expedite, quiet=quiet).as_tuple)
             )
         
         elif name == PRIM + "rotate":
@@ -189,22 +189,22 @@ class Bbox:
 
             # This would return the rotated bbox of the union of children. It returns a valid upper bound for the box, but 
             # is needlessly conservative.
-            # return Bbox.from_scad(d._children[0]).__rotate(_a)
+            # return Bbox.from_scad(d._children[0], quiet=quiet).__rotate(_a)
 
             # Instead, try to do the rotation as early as possible
-            return Bbox.from_scad(d._children[0], expedite @ rot.xyz(_a))
+            return Bbox.from_scad(d._children[0], expedite @ rot.xyz(_a), quiet=quiet)
 
         elif name == PRIM + "scale":
             assert len(d._children) == 1  # Is there always either a primitive or a union here? Else must unionize the children.
             _a: tuple[float, float, float] = params["v"]  # pyright: ignore[reportAssignmentType]
-            return Bbox.from_scad(d._children[0], expedite @ scl.xyz(_a))
+            return Bbox.from_scad(d._children[0], expedite @ scl.xyz(_a), quiet=quiet)
 
         elif name in [
             PRIM + "union",
             BOSL + "regions.union",
             BOSL + "color.hsv",
         ]:
-            if boxes := [box for box in [cls.from_scad(child, expedite) for child in d._children] if not box.is_null]:
+            if boxes := [box for box in [cls.from_scad(child, expedite, quiet=quiet) for child in d._children] if not box.is_null]:
                 return cls._union(*boxes)
             else:
                 # No children or all were null, this branch does not contribute to Bbox.
@@ -215,7 +215,7 @@ class Bbox:
             BOSL + "regions.difference",
         ]:
             # NOTE: This is an upper bound. It should be possible to compute the difference of all bboxes.
-            return cls.from_scad(d._children[0], expedite)
+            return cls.from_scad(d._children[0], expedite, quiet=quiet)
 
         elif name in [
             PRIM + "cylinder",
@@ -240,14 +240,15 @@ class Bbox:
         elif name in [
             BOSL + "regions.intersection"
         ]:
-            if boxes := [box for box in [cls.from_scad(child, expedite) for child in d._children] if not box.is_null]:
+            if boxes := [box for box in [cls.from_scad(child, expedite, quiet=quiet) for child in d._children] if not box.is_null]:
                 return cls._intersection(*boxes)
             else:
                 # No children or all were null, this branch does not contribute to Bbox.
                 return cls()
 
         else:
-            print(f"Warning: Unsupported object; '{name}'. Ignoring.")
+            if not quiet:
+                print(f"Warning: Unsupported object; '{name}'. Ignoring.")
             # Return 'special' Bbox for which is_null will be true (all-zero).
             # Such a Bbox will be ignored by further Bbox computations.
             # IDEA: perhaps I could have the user add a bbox annotation to some objects they know aren't implemented/able. Could be as simple as just setting a 3x2-tuple to some new attribute, e.g. r=rack(...); r.bbox_hint=(...). This hint could then be used later when computing the bbox if the object type is not matched.
