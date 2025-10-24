@@ -167,6 +167,10 @@ class Bbox:
             assert "x" in params
             name = PRIM + "translate"
             params = {"v": [-params["x"], 0, 0]}
+        elif name == BOSL + "transforms.translate":
+            assert "v" in params
+            name = PRIM + "translate"
+            params = {"v": params["v"]}
 
         # Handle objects
         if name in [
